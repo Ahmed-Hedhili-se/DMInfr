@@ -31,7 +31,12 @@ def _load_tuned_configs():
     lose their tuning, but it warns, because it cannot be verified against
     the GPU actually running.
     """
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    # dminfr/engine/fused_moe_triton.py -> dminfr/engine -> dminfr -> repo root.
+    # Three levels, not two: the 1fca44f restructure moved this file one
+    # directory deeper (model_update/ -> dminfr/engine/) and the old two-level
+    # walk silently started resolving to dminfr/, so every tuned config failed
+    # to load and the kernel fell back to hardcoded tile shapes.
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     keyed = os.path.join(root, f"moe_tune_config.device_name={_device_tag()}.json")
     legacy = os.path.join(root, "moe_tune_config.json")
 

@@ -11,6 +11,7 @@
 #   bash start_dp.sh                                  # one replica per visible GPU
 #   bash start_dp.sh --gpus 8 --quantize int8
 #   bash start_dp.sh --gpus 4 --port 8000 --batch-max-size 128
+#   bash start_dp.sh --gpus 8 --tp-size 2      # hybrid: 4 replicas x TP=2
 #
 # Logs land in ./dp_logs/. Ctrl-C stops the router and every replica.
 set -euo pipefail
@@ -25,6 +26,7 @@ REPLICA_PORT_BASE=8100
 GPUS=""
 REPLICAS=""
 DRY_RUN=0
+TP_SIZE=1
 BACKEND="fast_dense"
 BATCH_MAX_SIZE="${BATCH_MAX_SIZE:-}"
 LOG_DIR="$REPO_ROOT/dp_logs"
@@ -37,6 +39,7 @@ while [[ $# -gt 0 ]]; do
         --replica-port)   REPLICA_PORT_BASE="$2"; shift 2 ;;
         --gpus)           GPUS="$2";              shift 2 ;;
         --replicas)       REPLICAS="$2";          shift 2 ;;
+        --tp-size)        TP_SIZE="$2";           shift 2 ;;
         --dry-run)        DRY_RUN=1;              shift 1 ;;
         --backend)        BACKEND="$2";           shift 2 ;;
         --batch-max-size) BATCH_MAX_SIZE="$2";    shift 2 ;;
@@ -80,7 +83,15 @@ fi
 # ~14 GiB, so an 80 GiB card holds several -- and on a single-GPU box this is
 # the only way to exercise multi-replica routing at all. Replica i is pinned to
 # GPU (i % GPUS), so replicas beyond GPUS share cards round-robin.
-REPLICAS="${REPLICAS:-$GPUS}"
+if [[ "$TP_SIZE" -gt 1 ]]; then
+    if (( GPUS % TP_SIZE != 0 )); then
+        echo "error: --gpus $GPUS is not divisible by --tp-size $TP_SIZE" >&2
+        exit 1
+    fi
+    REPLICAS="${REPLICAS:-$((GPUS / TP_SIZE))}"
+else
+    REPLICAS="${REPLICAS:-$GPUS}"
+fi
 if [[ "$REPLICAS" -lt 1 ]]; then
     echo "--replicas must be >= 1 (got '$REPLICAS')."
     exit 1
@@ -98,7 +109,16 @@ fi
 
 echo "Placement plan:"
 for ((i = 0; i < REPLICAS; i++)); do
-    echo "  replica $i -> GPU $((i % GPUS)), port $((REPLICA_PORT_BASE + i))"
+    if [[ "$TP_SIZE" -gt 1 ]]; then
+        grp=""
+        for ((k = 0; k < TP_SIZE; k++)); do
+            grp+="$(( (i * TP_SIZE + k) % GPUS ))"
+            (( k < TP_SIZE - 1 )) && grp+=","
+        done
+        echo "  replica $i -> GPUs [$grp] (TP=$TP_SIZE), port $((REPLICA_PORT_BASE + i))"
+    else
+        echo "  replica $i -> GPU $((i % GPUS)), port $((REPLICA_PORT_BASE + i))"
+    fi
 done
 echo ""
 
@@ -144,6 +164,33 @@ for ((i = 0; i < REPLICAS; i++)); do
     # All four variables must be set together: distributed.py fills in the
     # single-process defaults only when MASTER_ADDR is absent, so setting the
     # port alone would skip RANK/WORLD_SIZE and fail inside env:// rendezvous.
+    if [[ "$TP_SIZE" -gt 1 ]]; then
+        # Hybrid DP x TP. Each replica gets a CONTIGUOUS group of TP_SIZE GPUs,
+        # so on an NVLink-paired node (0-1, 2-3, ...) a TP=2 replica lands on a
+        # pair that is NVLink-connected rather than crossing PCIe. Check with
+        # `nvidia-smi topo -m` before assuming the pairing on a given machine.
+        #
+        # NOTE: server.py disables request batching when tp_size > 1, so every
+        # request in a TP replica serialises through request_lock. This branch
+        # exists to MEASURE that trade-off, not because it is the fast path.
+        grp=""
+        for ((k = 0; k < TP_SIZE; k++)); do
+            grp+="$(( (i * TP_SIZE + k) % GPUS ))"
+            (( k < TP_SIZE - 1 )) && grp+=","
+        done
+        env CUDA_VISIBLE_DEVICES="$grp" \
+            MASTER_ADDR=127.0.0.1 \
+            MASTER_PORT=$((29500 + i * TP_SIZE)) \
+            ${BATCH_MAX_SIZE:+BATCH_MAX_SIZE="$BATCH_MAX_SIZE"} \
+            "$VENV/bin/torchrun" --nproc_per_node="$TP_SIZE" \
+                --master_addr=127.0.0.1 --master_port=$((29500 + i * TP_SIZE)) \
+                -m dminfr.serving.server \
+                --weight-dir "$WEIGHT_DIR" \
+                --port "$rport" \
+                --host 127.0.0.1 \
+                --backend "$BACKEND" \
+                --tp-size "$TP_SIZE" > "$LOG_DIR/replica_$i.log" 2>&1 &
+    else
     env CUDA_VISIBLE_DEVICES="$gpu" \
         MASTER_ADDR=127.0.0.1 \
         MASTER_PORT=$((29500 + i)) \
@@ -157,6 +204,7 @@ for ((i = 0; i < REPLICAS; i++)); do
             --device cuda:0 \
             --backend "$BACKEND" \
             "${QUANT_ARGS[@]}" > "$LOG_DIR/replica_$i.log" 2>&1 &
+    fi
     PIDS+=("$!")
     BACKENDS="${BACKENDS:+$BACKENDS,}http://127.0.0.1:$rport"
     echo "  replica $i -> GPU $gpu, port $rport (pid ${PIDS[-1]})"

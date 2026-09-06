@@ -384,7 +384,8 @@ def main():
 
     if args.output is None:
         # Default: save to repo root so fused_moe_triton.py picks it up automatically
-        repo_root = os.path.dirname(os.path.abspath(__file__))
+        # dminfr/tuning/autotune_moe.py -> dminfr/tuning -> dminfr -> repo root.
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         # Device-keyed by default. Tile shapes are hardware-specific -- this
         # file used to be one unkeyed moe_tune_config.json, so a config tuned
         # on one GPU loaded silently on another with nothing in the filename
