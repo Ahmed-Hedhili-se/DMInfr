@@ -11,6 +11,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 WEIGHT_DIR="$REPO_ROOT/weights"
 PORT=8000
+# torchrun defaults to 29500; settable so a TP server can share a node
+# with other deployments without an EADDRINUSE collision.
+MASTER_PORT_ARG="${MASTER_PORT_ARG:-29500}"
 HOST="0.0.0.0"
 DEVICE="cuda:0"
 VENV="${VENV:-$REPO_ROOT/.venv}"
@@ -23,6 +26,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --weight-dir) WEIGHT_DIR="$2"; shift 2 ;;
         --port)       PORT="$2";       shift 2 ;;
+        --master-port) MASTER_PORT_ARG="$2"; shift 2 ;;
         --host)       HOST="$2";       shift 2 ;;
         --device)     DEVICE="$2";     shift 2 ;;
         --backend)    BACKEND="$2";    shift 2 ;;
@@ -71,7 +75,9 @@ echo ""
 cd "$REPO_ROOT"
 
 if [ "$TP_SIZE" -gt 1 ]; then
-    exec "$VENV/bin/torchrun" --nproc_per_node="$TP_SIZE" -m dminfr.serving.server \
+    exec "$VENV/bin/torchrun" --nproc_per_node="$TP_SIZE" \
+        --master_addr=127.0.0.1 --master_port="$MASTER_PORT_ARG" \
+        -m dminfr.serving.server \
         --weight-dir "$WEIGHT_DIR" \
         --port "$PORT" \
         --host "$HOST" \

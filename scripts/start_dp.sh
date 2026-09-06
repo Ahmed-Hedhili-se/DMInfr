@@ -29,6 +29,10 @@ REPLICAS=""
 DRY_RUN=0
 TP_SIZE=1
 GPU_LIST=""
+# Rendezvous port base. Each replica takes its own port from here. It is
+# settable because --gpu-list allows several deployments on one node, and
+# they would otherwise all start from 29500 and collide with EADDRINUSE.
+MASTER_PORT_BASE="${MASTER_PORT_BASE:-29500}"
 BACKEND="fast_dense"
 BATCH_MAX_SIZE="${BATCH_MAX_SIZE:-}"
 LOG_DIR="$REPO_ROOT/dp_logs"
@@ -43,6 +47,7 @@ while [[ $# -gt 0 ]]; do
         --replicas)       REPLICAS="$2";          shift 2 ;;
         --tp-size)        TP_SIZE="$2";           shift 2 ;;
         --gpu-list)       GPU_LIST="$2";          shift 2 ;;
+        --master-port-base) MASTER_PORT_BASE="$2"; shift 2 ;;
         --dry-run)        DRY_RUN=1;              shift 1 ;;
         --backend)        BACKEND="$2";           shift 2 ;;
         --batch-max-size) BATCH_MAX_SIZE="$2";    shift 2 ;;
@@ -199,10 +204,10 @@ for ((i = 0; i < REPLICAS; i++)); do
         done
         env CUDA_VISIBLE_DEVICES="$grp" \
             MASTER_ADDR=127.0.0.1 \
-            MASTER_PORT=$((29500 + i * TP_SIZE)) \
+            MASTER_PORT=$((MASTER_PORT_BASE + i * TP_SIZE)) \
             ${BATCH_MAX_SIZE:+BATCH_MAX_SIZE="$BATCH_MAX_SIZE"} \
             "$VENV/bin/torchrun" --nproc_per_node="$TP_SIZE" \
-                --master_addr=127.0.0.1 --master_port=$((29500 + i * TP_SIZE)) \
+                --master_addr=127.0.0.1 --master_port=$((MASTER_PORT_BASE + i * TP_SIZE)) \
                 -m dminfr.serving.server \
                 --weight-dir "$WEIGHT_DIR" \
                 --port "$rport" \
@@ -212,7 +217,7 @@ for ((i = 0; i < REPLICAS; i++)); do
     else
     env CUDA_VISIBLE_DEVICES="$gpu" \
         MASTER_ADDR=127.0.0.1 \
-        MASTER_PORT=$((29500 + i)) \
+        MASTER_PORT=$((MASTER_PORT_BASE + i)) \
         RANK=0 \
         WORLD_SIZE=1 \
         ${BATCH_MAX_SIZE:+BATCH_MAX_SIZE="$BATCH_MAX_SIZE"} \
