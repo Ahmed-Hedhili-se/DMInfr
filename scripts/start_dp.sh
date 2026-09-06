@@ -35,7 +35,9 @@ GPU_LIST=""
 MASTER_PORT_BASE="${MASTER_PORT_BASE:-29500}"
 BACKEND="fast_dense"
 BATCH_MAX_SIZE="${BATCH_MAX_SIZE:-}"
-LOG_DIR="$REPO_ROOT/dp_logs"
+# Log dir is settable: two deployments sharing a node would otherwise both
+# write dp_logs/replica_0.log and destroy each other's diagnostics.
+LOG_DIR="${LOG_DIR:-$REPO_ROOT/dp_logs}"
 QUANT_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -48,6 +50,7 @@ while [[ $# -gt 0 ]]; do
         --tp-size)        TP_SIZE="$2";           shift 2 ;;
         --gpu-list)       GPU_LIST="$2";          shift 2 ;;
         --master-port-base) MASTER_PORT_BASE="$2"; shift 2 ;;
+        --log-dir)        LOG_DIR="$2";           shift 2 ;;
         --dry-run)        DRY_RUN=1;              shift 1 ;;
         --backend)        BACKEND="$2";           shift 2 ;;
         --batch-max-size) BATCH_MAX_SIZE="$2";    shift 2 ;;
@@ -212,8 +215,7 @@ for ((i = 0; i < REPLICAS; i++)); do
                 --weight-dir "$WEIGHT_DIR" \
                 --port "$rport" \
                 --host 127.0.0.1 \
-                --backend "$BACKEND" \
-                --tp-size "$TP_SIZE" > "$LOG_DIR/replica_$i.log" 2>&1 &
+                --backend "$BACKEND" > "$LOG_DIR/replica_$i.log" 2>&1 &
     else
     env CUDA_VISIBLE_DEVICES="$gpu" \
         MASTER_ADDR=127.0.0.1 \
