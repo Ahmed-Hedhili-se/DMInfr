@@ -12,6 +12,7 @@
 #   bash start_dp.sh --gpus 8 --quantize int8
 #   bash start_dp.sh --gpus 4 --port 8000 --batch-max-size 128
 #   bash start_dp.sh --gpus 8 --tp-size 2      # hybrid: 4 replicas x TP=2
+#   bash start_dp.sh --gpu-list 2,3 --port 8010   # pin to GPUs 2 and 3
 #
 # Logs land in ./dp_logs/. Ctrl-C stops the router and every replica.
 set -euo pipefail
@@ -27,6 +28,7 @@ GPUS=""
 REPLICAS=""
 DRY_RUN=0
 TP_SIZE=1
+GPU_LIST=""
 BACKEND="fast_dense"
 BATCH_MAX_SIZE="${BATCH_MAX_SIZE:-}"
 LOG_DIR="$REPO_ROOT/dp_logs"
@@ -40,6 +42,7 @@ while [[ $# -gt 0 ]]; do
         --gpus)           GPUS="$2";              shift 2 ;;
         --replicas)       REPLICAS="$2";          shift 2 ;;
         --tp-size)        TP_SIZE="$2";           shift 2 ;;
+        --gpu-list)       GPU_LIST="$2";          shift 2 ;;
         --dry-run)        DRY_RUN=1;              shift 1 ;;
         --backend)        BACKEND="$2";           shift 2 ;;
         --batch-max-size) BATCH_MAX_SIZE="$2";    shift 2 ;;
@@ -71,7 +74,13 @@ fi
 # Default to every visible GPU. Deliberately queried rather than assumed --
 # getting this wrong silently starts N replicas on GPU 0 and they OOM each
 # other, which looks like a memory bug rather than a launch bug.
-if [[ -z "$GPUS" ]]; then
+# --gpu-list names the physical GPUs directly, so it also fixes the count and
+# must be read BEFORE the autodetect below -- otherwise a machine where torch
+# cannot see the GPUs (or a dry run on a laptop) exits before the list is used.
+if [[ -n "$GPU_LIST" ]]; then
+    IFS=',' read -r -a GPU_IDS <<< "$GPU_LIST"
+    GPUS="${#GPU_IDS[@]}"
+elif [[ -z "$GPUS" ]]; then
     GPUS="$("$PY" -c 'import torch; print(torch.cuda.device_count())' 2>/dev/null || echo 0)"
 fi
 if [[ "$GPUS" -lt 1 ]]; then
@@ -83,6 +92,16 @@ fi
 # ~14 GiB, so an 80 GiB card holds several -- and on a single-GPU box this is
 # the only way to exercise multi-replica routing at all. Replica i is pinned to
 # GPU (i % GPUS), so replicas beyond GPUS share cards round-robin.
+# --gpu-list pins this deployment to specific physical GPUs, so several
+# independent deployments can run side by side on one node. The per-replica
+# CUDA_VISIBLE_DEVICES below OVERRIDES any value inherited from the
+# environment, so exporting CUDA_VISIBLE_DEVICES before calling this script
+# does not work -- the indices must be threaded through explicitly.
+if [[ -z "$GPU_LIST" ]]; then
+    GPU_IDS=()
+    for ((g = 0; g < GPUS; g++)); do GPU_IDS+=("$g"); done
+fi
+
 if [[ "$TP_SIZE" -gt 1 ]]; then
     if (( GPUS % TP_SIZE != 0 )); then
         echo "error: --gpus $GPUS is not divisible by --tp-size $TP_SIZE" >&2
@@ -112,12 +131,12 @@ for ((i = 0; i < REPLICAS; i++)); do
     if [[ "$TP_SIZE" -gt 1 ]]; then
         grp=""
         for ((k = 0; k < TP_SIZE; k++)); do
-            grp+="$(( (i * TP_SIZE + k) % GPUS ))"
+            grp+="${GPU_IDS[$(( (i * TP_SIZE + k) % GPUS ))]}"
             (( k < TP_SIZE - 1 )) && grp+=","
         done
         echo "  replica $i -> GPUs [$grp] (TP=$TP_SIZE), port $((REPLICA_PORT_BASE + i))"
     else
-        echo "  replica $i -> GPU $((i % GPUS)), port $((REPLICA_PORT_BASE + i))"
+        echo "  replica $i -> GPU ${GPU_IDS[$((i % GPUS))]}, port $((REPLICA_PORT_BASE + i))"
     fi
 done
 echo ""
@@ -150,7 +169,7 @@ echo ""
 
 for ((i = 0; i < REPLICAS; i++)); do
     rport=$((REPLICA_PORT_BASE + i))
-    gpu=$((i % GPUS))
+    gpu="${GPU_IDS[$((i % GPUS))]}"
     # CUDA_VISIBLE_DEVICES pins the replica; inside it the GPU is always
     # cuda:0, which is also what makes each replica's tp_size == 1 and keeps
     # the batching path enabled.
@@ -175,7 +194,7 @@ for ((i = 0; i < REPLICAS; i++)); do
         # exists to MEASURE that trade-off, not because it is the fast path.
         grp=""
         for ((k = 0; k < TP_SIZE; k++)); do
-            grp+="$(( (i * TP_SIZE + k) % GPUS ))"
+            grp+="${GPU_IDS[$(( (i * TP_SIZE + k) % GPUS ))]}"
             (( k < TP_SIZE - 1 )) && grp+=","
         done
         env CUDA_VISIBLE_DEVICES="$grp" \
