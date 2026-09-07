@@ -52,12 +52,23 @@ request_lock = threading.Lock()
 # Scoped deliberately narrowly: only BACKEND == "fast_dense" with tp_size == 1
 # (a plain single-GPU instance, e.g. one DP replica) routes through here. TP+EP
 # (tp_size > 1) keeps the original one-request-at-a-time request_lock path
-# below completely unchanged -- batching a request there would mean the batch
-# itself has to survive dist.broadcast_object_list() to worker_loop() every
-# step, which is real additional distributed-coordination surface area on top
-# of code that's already the most failure-prone part of this project (see
-# INVESTIGATION_LOG.md's KV-cache collapse bug). Validate batching's actual
-# throughput win on the simple path first.
+# below completely unchanged. That restriction is the single reason TP is
+# unusable for throughput: 4.7 tok/s measured on an NVLink-paired 8x H100 node
+# against 1349 tok/s for plain DP=2, so the interconnect was never the problem.
+#
+# CORRECTION to what this comment used to say. It claimed the batch would have
+# to survive dist.broadcast_object_list() to worker_loop() EVERY STEP. That is
+# not how worker_loop consumes it -- the broadcast happens once per generation
+# CALL, carrying input_ids of arbitrary shape, and the per-layer TP collectives
+# inside the model take care of themselves from there. So batching under TP is
+# a much smaller change than this comment implied: broadcast the batched
+# input_ids plus its kwargs once in _run_batch, and drop the tp_size == 1 gate.
+#
+# That was implemented and tried on 2026-09-07. Rank 1 exited during the first
+# benchmark and the rented node expired before the cause could be found, so it
+# is NOT shipped -- the code here is the original serialised path. Anyone
+# picking this up should start from the observation above, and should expect to
+# spend the time on rank-1 lifecycle rather than on the batching itself.
 #
 # dminfr/engine/generate.py's _generate_block_cached already handles a batch
 # dimension B generically (get_num_transfer_tokens and the per-row top-k
