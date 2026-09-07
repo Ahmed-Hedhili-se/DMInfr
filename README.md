@@ -71,7 +71,8 @@ standard. They are corrected below and the retractions are recorded in
 Past concurrency 64 throughput *drops* while p50 triples — 64 total (32/replica)
 is the operating point, not a floor to push past.
 
-**Speedup** (5 runs, 0/128 token divergence vs baseline)
+**Speedup** (5 runs, 0/128 token divergence vs baseline) — **all four rows
+measured on the 2× H100 box**, including the baseline
 
 | | Tok/s | vs baseline |
 |---|---:|---:|
@@ -83,6 +84,19 @@ is the operating point, not a floor to push past.
 Decomposition cross-checks (10.16 × 17.62 = 179.0), but the `src/` baseline
 drifted 7.8% between two runs of identical code — **quote a range: ~165–180×
 on one GPU, ~225–260× on two**, not a single digit.
+
+> **These ratios have not been updated with the 8× H100 numbers, deliberately.**
+> That run measured throughput only; the baseline and the single-request
+> optimized figure were never re-taken on that machine. Dividing the new
+> throughput by the old baseline would give 183× / 372× / 508× for 1 / 2 / 4
+> GPUs, but it crosses hardware — and the baseline drifts almost 8% between
+> runs of identical code on *one* machine, so crossing two is worse. Restoring
+> a sound ladder needs one command on whatever GPU you have next:
+> `python -m benchmarks.check_time_inference --weight-dir weights --mode both`.
+>
+> What can be said without a new baseline: single-GPU throughput is unchanged
+> (656.9 → 670.2, inside the ±5% noise floor), while **two-GPU throughput
+> measured 43% higher** (954.5 → 1366.3), which is well outside it.
 
 ### 8× H100 PCIe — parallelism matrix
 
@@ -141,6 +155,16 @@ Read that table carefully, because the ordering is not intuitive:
 **Use data parallelism.** The hybrid and TP paths exist so the trade-off can be
 measured, and are wired up (`--tp-size`, `--gpu-list`); they are not the fast
 path, and this measurement is the reason.
+
+**DP=8 is not in the table because it never loaded.** All eight replicas
+launched and stayed alive, but the GPUs never went past 4 MiB and the router
+never came up. The likely cause is disk: eight replicas each reading a 14 GB
+checkpoint at once is ~112 GB of concurrent reads from one volume, and DP=1
+through DP=4 loaded without trouble. That is a plausible explanation, not a
+verified one — the rented node expired before it could be confirmed. Extrapolating
+2.78× at four GPUs suggests roughly 2400–2700 tok/s at eight, which is why it
+is worth measuring, and why it is stated here as an extrapolation rather than
+entered in the table.
 
 > **A TP deployment that receives no traffic for 10 minutes kills itself.** The
 > worker ranks block in `broadcast_object_list()` inside `worker_loop()` with a
