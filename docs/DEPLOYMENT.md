@@ -54,7 +54,19 @@ TP+EP remains available (`scripts/start.sh --tp-size N`), but **do not reach for
 - At concurrency 1 with 128-token generation, TP+EP=2 and a single replica are **statistically tied** (24.8 vs 23.3 tok/s).
 - At realistic GSM8K length it **inverts**: 19.4 s/question against a single GPU's 3.4–3.8 s, because TP's per-layer NCCL all-reduce cost is paid *per diffusion step* and GSM8K runs far more steps than the throughput benchmark does.
 
-On an NVLink'd node the picture may differ; on PCIe it does not favour TP. See [`docs/h100x2_bench.md`](h100x2_bench.md) §7, §8e.
+**NVLink does not change this, and that is now measured rather than assumed.**
+On an 8x H100 node whose GPUs are NVLink-paired (0-1, 2-3, 4-5, 6-7), TP/EP=2
+running on an NVLink pair reached 4.7 tok/s, and hybrid DP=2 x TP=2 on four
+GPUs reached 66 tok/s, against 1349 tok/s for plain DP=2 on two GPUs. The
+bottleneck was never interconnect bandwidth: it is that request batching is
+disabled whenever tp_size > 1, so every request serialises through one lock.
+See the parallelism matrix in the [README](../README.md).
+
+Hybrid deployments are supported (`--tp-size`, `--gpu-list`,
+`--master-port-base`, `--log-dir`) so the trade-off can be measured on your
+own hardware, not because they are recommended.
+
+See [`docs/h100x2_bench.md`](h100x2_bench.md) §7, §8e.
 
 ---
 

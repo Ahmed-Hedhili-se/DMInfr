@@ -84,6 +84,78 @@ Decomposition cross-checks (10.16 × 17.62 = 179.0), but the `src/` baseline
 drifted 7.8% between two runs of identical code — **quote a range: ~165–180×
 on one GPU, ~225–260× on two**, not a single digit.
 
+### 8× H100 PCIe — parallelism matrix
+
+Measured 2026-09-06 on an 8× H100 PCIe node (252 cores, 1.4 TB RAM). The GPUs
+are **NVLink-paired** — `0-1`, `2-3`, `4-5`, `6-7` are `NV12`, everything else
+is PCIe — which finally answers a caveat this README carried for a month:
+whether tensor parallelism looks better with NVLink. It does not.
+
+**Data-parallel scaling** (3 reps/point, one replica per GPU)
+
+| Replicas | Concurrency 32 | Concurrency 64 | Concurrency 128 |
+|---:|---:|---:|---:|
+| 1 GPU | 670.2 ± 29.7 | 644.2 ± 31.2 | — |
+| 2 GPUs | 1032.1 ± 34.0 | **1366.3 ± 2.6** | 752.3 ± 106.4 |
+| 4 GPUs | 1132.3 ± 45.1 | **1863.2 ± 161.5** | 921.4 ± 109.0 |
+
+Scaling at the per-configuration optimum is **2.04× at 2 GPUs and 2.78× at 4**,
+against 1.45× measured previously on a 2-GPU box. Two things changed: this node
+has far more host headroom (252 cores vs. a much smaller box, and host
+contention was the measured cause of the old shortfall), and the tuned MoE
+config now actually loads — see the note below.
+
+Every configuration peaks at **concurrency 64 and collapses at 128**. That is
+consistent across replica counts, so treat 64 as the operating point rather
+than a floor to push past.
+
+**All three topologies at once, on disjoint GPUs**
+
+`--gpu-list` and `--master-port-base` allow independent deployments to share a
+node, so the full matrix can run simultaneously: TP/EP on GPUs 0-1, DP on 2-3,
+hybrid DP×TP on 4-7.
+
+| Topology | GPUs | Alone | Concurrent with the other two |
+|---|---:|---:|---:|
+| **DP = 2** | 2 | **1348.8 ± 3.3** (conc 64) | 961.5 ± 62.9 (conc 32) |
+| **Hybrid DP=2 × TP=2** | 4 | 66.1 ± 0.9 (conc 16) | 71.3 ± 1.0 (conc 8) |
+| **TP/EP = 2** | 2 | **4.7** (conc 8, n=1) | timed out |
+
+Read that table carefully, because the ordering is not intuitive:
+
+- **DP on 2 GPUs beats hybrid on 4 GPUs by roughly 20×**, and beats TP/EP on the
+  same 2 GPUs by nearly 300×.
+- **NVLink does not rescue tensor parallelism.** Each hybrid replica sits on an
+  NVLink pair and each TP/EP rank pair likewise; the result is still an order of
+  magnitude short of plain replication. The cause is not interconnect bandwidth,
+  it is that `server.py` disables request batching whenever `tp_size > 1`, so
+  every request serialises through one lock. Interconnect was never the
+  bottleneck; batching was.
+- TP/EP at 4.7 tok/s is slow enough that a 24-request run exceeds the client's
+  600 s timeout, which is why most of its cells failed rather than returning a
+  number. The single surviving measurement is reported with `n=1` and should be
+  read as an order of magnitude, not a figure.
+- DP loses about **29%** when the other two topologies are hammering the same
+  host (1348.8 → 961.5). Splitting a node between deployments is not free.
+
+**Use data parallelism.** The hybrid and TP paths exist so the trade-off can be
+measured, and are wired up (`--tp-size`, `--gpu-list`); they are not the fast
+path, and this measurement is the reason.
+
+> **A TP deployment that receives no traffic for 10 minutes kills itself.** The
+> worker ranks block in `broadcast_object_list()` inside `worker_loop()` with a
+> 600 s timeout, and rank 0 only joins that collective when a request arrives.
+> Benchmark a TP arm immediately after it comes up, or it will be dead by the
+> time you reach it.
+
+> **Tuned MoE configs were silently not loading between `1fca44f` and
+> `1fb0370`.** The restructure moved `fused_moe_triton.py` one directory deeper,
+> and its two-level walk to the repo root started resolving to `dminfr/`, so
+> `TUNED_CONFIGS` loaded empty and the kernel fell back to hardcoded tile
+> shapes. The autotuner had the mirror bug and wrote its output where the
+> loader did not look. Any throughput number taken in that window on a machine
+> without a repo-root config was measuring untuned kernels.
+
 ### Single request vs baseline — RTX A6000
 
 ```bash
