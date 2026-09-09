@@ -164,10 +164,40 @@ def profile():
     return results
 
 
+@app.function(image=image, gpu="H100", volumes={DATA: vol}, timeout=90 * 60)
+def trace():
+    """Capture a baseline-vs-optimized trace pair for the report.
+
+    Chrome-format traces, not nsys: Modal's image does not ship Nsight Systems,
+    and the PyTorch profiler is already a dependency. The output opens directly
+    in ui.perfetto.dev, which is where the existing report figure came from, so
+    the new pair will match it visually.
+    """
+    import glob, shutil, os, torch
+    repo = _clone()
+    print("GPU:", torch.cuda.get_device_name(0))
+    out = f"{DATA}/traces"
+    os.makedirs(out, exist_ok=True)
+    _run([
+        "python", "-m", "benchmarks.trace_compare",
+        "--weight-dir", f"{DATA}/weights",
+        "--out-dir", out,
+        "--gen-length", "128", "--steps", "128", "--block-length", "32",
+    ])
+    vol.commit()
+    for f in sorted(glob.glob(f"{out}/*")):
+        print("  %-42s %8.1f MB" % (os.path.basename(f), os.path.getsize(f) / 1e6))
+    return sorted(os.path.basename(f) for f in glob.glob(f"{out}/*"))
+
+
 @app.local_entrypoint()
 def main():
     print("Run one function at a time, in order:")
     print("  modal run modal_app.py::fetch_weights")
     print("  modal run modal_app.py::tune")
     print("  modal run modal_app.py::baseline")
+    print("  modal run modal_app.py::trace     <- traces for the report")
     print("  modal run modal_app.py::profile")
+    print()
+    print("Download the traces afterwards with:")
+    print("  modal volume get dminfr-data traces/ ./traces")
