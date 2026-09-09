@@ -478,7 +478,7 @@ class ChatRequest(BaseModel):
     cfg_scale: float = DEFAULT_CFG_SCALE
     remasking: str = DEFAULT_REMASKING
     # Opt-in hierarchical threshold-based decoding (dminfr/engine/generate.py's
-    # confidence_threshold, ported from dInfer's HierarchyDecoder) instead
+    # confidence_threshold, following dInfer's HierarchyDecoder) instead
     # of the default fixed-per-step reveal schedule. None (default) is the
     # exact original behavior. Validated on MMLU-Pro (44.0% acc) and GSM8K
     # (see README's "Adaptive Decoding" section for current numbers) -- but

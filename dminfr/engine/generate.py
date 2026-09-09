@@ -81,8 +81,10 @@ def select_transfer_indices_hierarchy(
     low_threshold: Optional[float] = 0.4,
 ) -> torch.Tensor:
     """
-    Ported from dInfer's HierarchyDecoder (inclusionAI/dInfer,
-    python/dinfer/decoding/parallel_strategy.py -- the same project's
+    Implements the hierarchy-decoding approach described by dInfer
+    (inclusionAI/dInfer, python/dinfer/decoding/parallel_strategy.py, read to
+    understand the failure mode it addresses; the code here is written from
+    the algorithm, not taken from that implementation -- the same project's
     gsm8k-llada-moe.yaml eval config this project's GSM8K/BBH/CRUX-O harness
     already aligned to elsewhere). "Force separate decisions" instead of a
     plain per-position threshold: an earlier, simpler threshold-only
@@ -186,7 +188,7 @@ def _generate_block_cached(
     original single-length path untouched.
 
     confidence_threshold: opt-in hierarchical threshold-based token
-    selection (select_transfer_indices_hierarchy, ported from dInfer's
+    selection (select_transfer_indices_hierarchy, following dInfer's
     HierarchyDecoder) instead of the default fixed per-step reveal count
     (select_transfer_indices). None (default) preserves the exact original
     behavior byte-for-byte -- the early-exit check below never triggers for
@@ -199,7 +201,7 @@ def _generate_block_cached(
     per-segment picks (see select_transfer_indices_hierarchy). Ignored
     when confidence_threshold is None.
 
-    A remask_threshold mechanism (ported from dInfer's
+    A remask_threshold mechanism (following dInfer's
     get_transfer_index_hierarchy_remask -- letting an already-revealed
     position be reverted to MASK and reconsidered) was tried here and
     REVERTED: it was meant to fix degenerate repetition loops that plain
@@ -364,7 +366,7 @@ def generate_cached(
     None (the default) is the original equal-length path, untouched.
 
     confidence_threshold: opt-in hierarchical threshold-based decoding
-    (select_transfer_indices_hierarchy, ported from dInfer's
+    (select_transfer_indices_hierarchy, following dInfer's
     HierarchyDecoder -- see its docstring for why this replaced an earlier,
     simpler, reverted threshold implementation) instead of the default
     fixed-per-step reveal schedule. None (default) preserves the exact

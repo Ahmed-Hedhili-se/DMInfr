@@ -73,7 +73,7 @@ See [`docs/h100x2_bench.md`](h100x2_bench.md) §7, §8e.
 ## Decoding configuration
 
 
-Opt-in threshold decoding (`confidence_threshold`), ported from dInfer's `HierarchyDecoder`: at most one reveal per contiguous run of selectable positions, floored by `low_confidence_threshold`, unioned with positions clearing the threshold outright.
+Opt-in threshold decoding (`confidence_threshold`), following the approach of dInfer's `HierarchyDecoder`: at most one reveal per contiguous run of selectable positions, floored by `low_confidence_threshold`, unioned with positions clearing the threshold outright.
 
 GSM8K, n=50, seed 42, chat-templated:
 
