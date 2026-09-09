@@ -514,7 +514,7 @@ def generate_dense(
     Triton fused MoE (both generate_cached and generate_dense run the
     same dminfr.engine model class/weights, so caching is the only
     variable) -- used by benchmarks/check_time_inference.py's --no-cache flag
-    for timing, and archive/investigations/diagnose_cache_vs_dense.py for the correctness
+    for timing, and diagnose_cache_vs_dense.py for the correctness
     investigation that originally found the KV-cache priming bug (see
     INVESTIGATION_LOG.md Part 2).
 

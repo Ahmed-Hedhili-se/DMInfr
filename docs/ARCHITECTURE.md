@@ -94,7 +94,7 @@ benchmarks/                 latency, throughput and accuracy harnesses
 scripts/                    setup.sh, start.sh, start_dp.sh
 tools/                      download_weights.py
 docs/                       INVESTIGATION_LOG.md, h100x2_bench.md
-archive/investigations/     one-off scripts behind INVESTIGATION_LOG's findings
+     one-off scripts behind INVESTIGATION_LOG's findings
 ```
 
 The `engine` / `reference` split was previously `model_update/` vs `src/` —

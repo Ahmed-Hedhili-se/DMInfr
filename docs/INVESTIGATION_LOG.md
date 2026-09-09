@@ -88,12 +88,12 @@ topk_weights = vals * keep_mask.to(vals.dtype)                 # zero dropped sl
 Staged rollout plan (`.claude/plans/polished-crunching-muffin.md`):
 
 - **Stage 0** — cheap offline validation using an existing routing-mass
-  diagnostic (`diagnose_real_activation_pruning.py`), no code changes.
+  diagnostic (`diagnose_real_activation_pruning.py` (in the project history)), no code changes.
 - **Stage 1** — prototype `nucleus_p` on the eager `MoEBlock` path (the
   per-expert loop there is naturally ragged-safe, no kernel work needed to
   get real compute savings). Added a new `fast_dense_eager` server backend,
   `--nucleus-p` in `run_correctness.py`, and nucleus support in
-  `diagnose_dynamic_experts.py`'s token-divergence check.
+  `diagnose_dynamic_experts.py` (in the project history)'s token-divergence check.
 - **Stage 2** — TP/EP determinism check: confirm `keep_mask` is bit-identical
   across TP ranks (a silent per-rank mismatch here would corrupt the MoE
   all-reduce in a much harder-to-debug way than the old scalar-k ramp,
@@ -159,8 +159,8 @@ as a disabled option, to avoid maintaining dead/misleading code paths:
 `fast_dense_eager`/`dyn_experts` backends removed from `dminfr/serving/server.py`, the
 corresponding CLI flags removed from `run_correctness.py` and
 `check_time_inference.py`, and the three diagnostic scripts that existed
-solely to test this feature (`diagnose_dynamic_experts.py`,
-`diagnose_nucleus_tp_consistency.py`, `diagnose_real_activation_pruning.py`)
+solely to test this feature (`diagnose_dynamic_experts.py` (in the project history),
+`diagnose_nucleus_tp_consistency.py` (in the project history), `diagnose_real_activation_pruning.py` (in the project history))
 deleted. README updated to match — now documents **two** stacked
 optimizations (Triton Fused MoE, Block-wise KV Caching), not three.
 
@@ -223,7 +223,7 @@ HF never exhibited this pattern, on either task.
 
 ### 2.3 Isolating the cause: cache vs. no-cache, identical weights
 
-`archive/investigations/diagnose_cache_vs_dense.py` was built to eliminate every confound
+`diagnose_cache_vs_dense.py` (in the project history) was built to eliminate every confound
 except caching: it runs the **same `dminfr.engine` model class and
 weights** through two generation paths on the identical question —
 
@@ -254,7 +254,7 @@ Both paths use `temperature=0` (pure greedy argmax), so any difference
 between them is a genuine, deterministic computational discrepancy — not
 sampling noise.
 
-`archive/investigations/diagnose_step_divergence.py` traced both paths step-by-step through
+`diagnose_step_divergence.py` (in the project history) traced both paths step-by-step through
 just block 0 (16 steps), printing the partially-decoded block content after
 every single step. The divergence was already visible at **step 0**, before
 any tokens had even been revealed:
@@ -325,7 +325,7 @@ run) got more expensive, since they now process more tokens each.
 
 ### 2.7 Verification
 
-Re-running `diagnose_cache_vs_dense.py` on the same 3 previously-collapsed
+Re-running `diagnose_cache_vs_dense.py` (in the project history) on the same 3 previously-collapsed
 questions after the fix:
 
 | item-idx | cached (post-fix) | dense |
@@ -337,12 +337,12 @@ questions after the fix:
 All 3/3 collapses resolved — cached output length and quality now closely
 track dense on every case tested.
 
-Note: `diagnose_step_divergence.py`'s cached trace, if re-run, still
+Note: `diagnose_step_divergence.py` (in the project history)'s cached trace, if re-run, still
 reproduces the old collapse — that script hand-reimplements the priming
 call inline for instrumentation purposes rather than calling the real
 `generate_cached`, so it was never touched by the fix. It was a one-off
 tracer used to *find* the bug; the authoritative post-fix verification is
-`diagnose_cache_vs_dense.py`, which does call the real, patched code path.
+`diagnose_cache_vs_dense.py` (in the project history), which does call the real, patched code path.
 
 ### 2.8 Full-benchmark verification
 
@@ -386,7 +386,7 @@ backends:
 | HF reference (same harness) | 74.0% (37/50) |
 
 Same ~6pt gap, different task — already suggestive this is systematic
-rather than MMLU-Pro-specific noise. `analyze_length_vs_gap.py` (built
+rather than MMLU-Pro-specific noise. `analyze_length_vs_gap.py` (in the project history) (built
 during the earlier investigation specifically to test the block-commit-
 staleness hypothesis but never actually run until now) was applied to
 matched `--save-transcripts` output from both backends on this GSM8K run,
@@ -471,7 +471,7 @@ uncached." Not yet investigated further.
 With generation-loop causes exhausted, the investigation moved down to
 the forward pass itself, on a realistic long input (GSM8K's real 4-shot
 chat-templated prompt, 1525 tokens, + 32 masked positions —
-`archive/investigations/diagnose_layer_divergence.py`).
+`diagnose_layer_divergence.py` (in the project history)).
 
 **Step 1 — divergence is sharp and discrete, not gradual.** Per-layer
 hidden-state cosine similarity vs HF stays high on average (~0.96-0.99
@@ -482,7 +482,7 @@ orthogonal while the rest stay fine. That is the signature of a discrete
 decision flipping for a few tokens, not accumulating rounding noise.
 
 **Step 2 — the flipping decision is MoE expert routing, and it flips
-constantly.** `archive/investigations/diagnose_moe_routing_divergence.py` captured the
+constantly.** `diagnose_moe_routing_divergence.py` (in the project history) captured the
 router's actual top-8 expert selection at every layer for both models:
 the two implementations pick a *different top-8 expert set* for 43-90%
 of positions at every layer, and 100% of the layer-7 cosine-collapsed

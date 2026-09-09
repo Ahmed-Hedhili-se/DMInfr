@@ -9,7 +9,7 @@ Self-contained PyTorch reimplementation of [inclusionAI/LLaDA-MoE-7B-A1B-Instruc
 
 **~955 tok/s on 2× H100 PCIe** · **10.2× single-request and ~179× single-GPU total-pipeline throughput** vs the unoptimized baseline.
 
-Measured on 2× H100 PCIe (full log: [`h100x2_bench.md`](h100x2_bench.md)) and on a single RTX A6000. Ratios are **not hardware-portable** — the baseline is CPU-dispatch-bound, so the same engine scores 8.70× on A6000 and 10.2× on H100 with no code difference.
+Measured on 2× H100 PCIe (full log: [`h100x2_bench.md`](docs/h100x2_bench.md)) and on a single RTX A6000. Ratios are **not hardware-portable** — the baseline is CPU-dispatch-bound, so the same engine scores 8.70× on A6000 and 10.2× on H100 with no code difference.
 
 > The mark is an 8×10 token lattice shaped as a **D**: masked in the upper left, resolved in the lower right, with four tokens stepping violet→blue through the counter — this engine's own decoding process, drawn. Full identity in [`assets/logo/`](assets/logo/README.md).
 
@@ -48,7 +48,7 @@ standard. They are corrected below and the retractions are recorded in
 > Two hardware sets below. **H100 numbers are 3 repetitions per point**; A6000
 > numbers are single samples and should be read as approximate — the measured
 > run-to-run noise floor on this harness is **~±5%** (up to ±15% at high batch),
-> so anything under ~10% is not a result. See [`docs/h100x2_bench.md`](h100x2_bench.md) §11.
+> so anything under ~10% is not a result. See [`docs/h100x2_bench.md`](docs/h100x2_bench.md) §11.
 
 ### 2× H100 PCIe — current
 
@@ -76,12 +76,12 @@ measured on the 2× H100 box**, including the baseline
 
 | | Tok/s | vs baseline |
 |---|---:|---:|
-| Baseline `src/`, single request | 3.67 | 1.00× |
+| Baseline (`dminfr/reference/`), single request | 3.67 | 1.00× |
 | Optimized, single request | 37.29 | **10.2×** |
 | 1 GPU batched (`BATCH_MAX_SIZE=32`) | 656.9 | **~179×** |
 | 2 GPUs (DP=2, concurrency 64) | 954.5 | **~260×** |
 
-Decomposition cross-checks (10.16 × 17.62 = 179.0), but the `src/` baseline
+Decomposition cross-checks (10.16 × 17.62 = 179.0), but the `dminfr/reference/` baseline
 drifted 7.8% between two runs of identical code — **quote a range: ~165–180×
 on one GPU, ~225–260× on two**, not a single digit.
 
@@ -189,10 +189,10 @@ python -m benchmarks.check_time_inference --weight-dir weights \
 
 | | Time | Tok/s | Speedup |
 |---|---:|---:|---:|
-| Baseline (`src/`, unfused, no cache) | 46.67 s | 2.74 | 1.00× |
+| Baseline (`dminfr/reference/`, unfused, no cache) | 46.67 s | 2.74 | 1.00× |
 | **Optimized** | **5.37 s** | **23.85** | **8.70×** |
 
-> The ratio is **not hardware-portable**. `src/`'s MoE loops 64 experts in Python, so the baseline is CPU-dispatch-bound while the optimized path is GPU-bound. An earlier measurement on a different box (A40-24Q) gave 6.46× with a 29.69 s baseline — the difference is mostly the host CPU, not the engine.
+> The ratio is **not hardware-portable**. `dminfr/reference/`'s MoE loops 64 experts in Python, so the baseline is CPU-dispatch-bound while the optimized path is GPU-bound. An earlier measurement on a different box (A40-24Q) gave 6.46× with a 29.69 s baseline — the difference is mostly the host CPU, not the engine.
 
 ### Total pipeline: 103×
 
@@ -200,7 +200,7 @@ Both arms through the same HTTP client and load harness, so this is a deployment
 
 | Pipeline | Tok/s |
 |---|---:|
-| `src/` over HTTP, serialized | **2.7** |
+| `dminfr/reference/` over HTTP, serialized | **2.7** |
 | `dminfr/engine/`, `BATCH_MAX_SIZE=32`, concurrency 32 | **278.3** |
 | | **103×** |
 
@@ -236,7 +236,7 @@ Throughput is past its knee by 32: 4× the batch buys 1.62× the throughput. The
 
 On A6000 it is close to a weight-streaming wall: the expert weights (805 MB/layer) stream every forward regardless of token count.
 
-On H100 it is **not**. Nsight Compute at the production shape measures **DRAM throughput 14.5%, L2 79.7%, compute 49.6%** — ncu names the L2 as the bottleneck outright, and DRAM is nowhere near saturated. An earlier revision of this section claimed "81% of theoretical weight-streaming bandwidth" and "no kernel headroom left"; that is an A6000 figure and does not transfer. See [`docs/h100x2_bench.md`](h100x2_bench.md) §10.
+On H100 it is **not**. Nsight Compute at the production shape measures **DRAM throughput 14.5%, L2 79.7%, compute 49.6%** — ncu names the L2 as the bottleneck outright, and DRAM is nowhere near saturated. An earlier revision of this section claimed "81% of theoretical weight-streaming bandwidth" and "no kernel headroom left"; that is an A6000 figure and does not transfer. See [`docs/h100x2_bench.md`](docs/h100x2_bench.md) §10.
 
 > Nsight's "Memory Throughput ~96%" is **L2**, not DRAM (DRAM sits at 66–68%). Read as a DRAM ceiling it says "nothing to gain"; read as an L2 ceiling it says "remove intermediate traffic" — which is what produced optimization 3.
 
@@ -258,11 +258,11 @@ the baseline (0/128 divergence).
 > questions). So n=200 carries ±3pt of intrinsic noise, marginal comparison at
 > that scale is invalid, and **paired McNemar is required** — resolving a 3-point
 > effect needs n≈1000. Every accuracy figure below n=1000 in this repo's history
-> inherits this. See [`docs/h100x2_bench.md`](h100x2_bench.md) §9.
+> inherits this. See [`docs/h100x2_bench.md`](docs/h100x2_bench.md) §9.
 
 Against the HuggingFace reference at the logit level: **3,219/3,219 weights mapped**, logit cosine **0.9781**, top-1 token match **91.0%**.
 
-A residual ~6pt fixed-schedule gap vs HF was investigated and closed as **inherent, not a bug**: this checkpoint's router is near-uniform (top-1 weight ~1.7–5%), so bf16-level noise flips top-8 expert membership for 43–90% of positions per layer. A 2×2 kernel-isolation matrix exonerated the Triton MoE kernel entirely. See [`docs/INVESTIGATION_LOG.md`](INVESTIGATION_LOG.md) §2.9–2.11.
+A residual ~6pt fixed-schedule gap vs HF was investigated and closed as **inherent, not a bug**: this checkpoint's router is near-uniform (top-1 weight ~1.7–5%), so bf16-level noise flips top-8 expert membership for 43–90% of positions per layer. A 2×2 kernel-isolation matrix exonerated the Triton MoE kernel entirely. See [`docs/INVESTIGATION_LOG.md`](docs/INVESTIGATION_LOG.md) §2.9–2.11.
 
 Regression tests (`python -m tests.<name>`):
 
@@ -400,7 +400,7 @@ Quantization earns its place when memory is the binding constraint, or for
 single-request latency. On H100 specifically, using the freed memory to run
 *more replicas per GPU* was tested and is a **net loss** — the MoE kernel is
 bandwidth-bound, so co-located replicas compete for bytes rather than adding
-throughput ([`docs/h100x2_bench.md`](h100x2_bench.md) §8d).
+throughput ([`docs/h100x2_bench.md`](docs/h100x2_bench.md) §8d).
 
 ---
 

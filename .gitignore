@@ -1,75 +1,49 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
 *.so
-.Python
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
 
 # Virtual environments
 .venv/
 venv/
-ENV/
 env/
 
-# Model weights & large datasets
+# Model weights
 weights/
 *.safetensors
 *.bin
-*.pth
 *.pt
-*.onnx
+*.pth
 
-# Evaluation & Benchmark Outputs
+# Benchmark and evaluation output
 results/
 *.jsonl
-baseline_results.json
-optimized_results.json
+traces/
+profiling/results/
+.profiling_worktrees/
 
-# IDE & OS
+# Profiler output
+batch_size*.json
+ncu_deep_report*.txt
+
+# Reference clones, not part of this project
+dInfer/
+sglang/
+
+# Documents
+*.pdf
+
+# IDE and OS
 .idea/
 .vscode/
 *.swp
-*.swo
 .DS_Store
 Thumbs.db
 
 # AI tooling
+.claude/
 .agents/
 .gemini/
-.claude/
-
-# Profiling & benchmark JSON traces
-batch_size*.json
-traces/
-
-# NCU profiling reports
-ncu_deep_report*.txt
-
-# Papers / large documents
-*.pdf
-the_paper.txt
-
-# dInfer reference (not part of this project's source)
-dInfer/
-
-# Reference clone, not part of this project
-sglang/
-
-# Historical profiling traces (large; keep local)
-profiling/results/
-.profiling_worktrees/
