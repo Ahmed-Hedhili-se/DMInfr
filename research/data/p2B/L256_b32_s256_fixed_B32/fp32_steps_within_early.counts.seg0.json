@@ -1,0 +1,1 @@
+{"new_rows": 1319, "seconds": 1178.7, "window": "steps_within:0:0.25", "counts": {"passes": 11130, "passes_fp32": 2688, "rows": 52484699, "rows_fp32": 12155904, "step_passes": 10752, "step_passes_fp32": 2688}}

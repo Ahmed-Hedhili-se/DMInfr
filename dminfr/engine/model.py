@@ -34,6 +34,11 @@ KVCache = List[Tuple[torch.Tensor, torch.Tensor]]
 #: dtype. See _router_logits() for why this is not the no-op it looks like.
 FP32_ROUTER = os.environ.get("LLADA_FP32_ROUTER", "0") != "0"
 
+#: Research instrumentation (research/probe.py), called as hook(gate, x_flat)
+#: in place of the gate projection. None in production; installed only via
+#: generate.set_research_hooks(), which refuses unless LLADA_RESEARCH_HOOKS=1.
+_ROUTER_HOOK = None
+
 
 def _router_logits(gate: nn.Linear, x_flat: torch.Tensor) -> torch.Tensor:
     """Router logits, optionally computed in fp32.
@@ -75,6 +80,8 @@ def _router_logits(gate: nn.Linear, x_flat: torch.Tensor) -> torch.Tensor:
     It cannot meaningfully move a kernel that is bandwidth-bound on the
     experts -- but that claim is measured, not assumed (see h100x2_bench.md).
     """
+    if _ROUTER_HOOK is not None:
+        return _ROUTER_HOOK(gate, x_flat)
     if not FP32_ROUTER:
         return gate(x_flat)
     return F.linear(x_flat.float(), gate.weight.float())

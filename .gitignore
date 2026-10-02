@@ -47,3 +47,10 @@ Thumbs.db
 .claude/
 .agents/
 .gemini/
+
+# Routing-fragility study (research/): the raw per-question JSONL is published
+# as a GitHub Release and fetched with research/fetch_data.py. The small
+# telemetry files are committed; the 145 MB first-smoke-test telemetry is not.
+!research/data/p1/**/*.telemetry.seg*.pt
+!research/data/p3_selfchurn/**/*.telemetry.seg*.pt
+!research/data/p3_smoke/**/*.telemetry.seg*.pt

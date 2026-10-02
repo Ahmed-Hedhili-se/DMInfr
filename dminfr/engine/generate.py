@@ -9,15 +9,38 @@ low-confidence remasking, block restriction), but:
     purely to compute correct K/V to push into the cache
 """
 
+import os
 import warnings
 from typing import Optional
 
 import torch
 import torch.nn.functional as F
 
+from . import model as _model
 from .model import KVCacheBuffer
 
 MASK_ID = 156895
+
+#: Research instrumentation (research/probe.py), called as hook(phase, **ctx)
+#: before every forward pass of generate_cached, so routing statistics and
+#: router-precision windows can be keyed to the denoising step. None in
+#: production. Phases: "prime", "block" (no forward; announces block_idx),
+#: "step", "commit" (no forward; the step's transfer mask and per-position
+#: confidence, just before the tokens are written), "finalize".
+_STEP_HOOK = None
+
+
+def set_research_hooks(router=None, step=None):
+    """Install (or, with no arguments, remove) the research hooks.
+
+    Gated on LLADA_RESEARCH_HOOKS=1 so production code cannot install them
+    by accident: everything under research/ goes through here.
+    """
+    global _STEP_HOOK
+    if (router is not None or step is not None) and os.environ.get("LLADA_RESEARCH_HOOKS", "0") == "0":
+        raise RuntimeError("research hooks require LLADA_RESEARCH_HOOKS=1")
+    _model._ROUTER_HOOK = router
+    _STEP_HOOK = step
 
 
 def add_gumbel_noise(logits: torch.Tensor, temperature: float) -> torch.Tensor:
@@ -247,6 +270,8 @@ def _generate_block_cached(
         # used -- num_logits keeps lm_head from projecting the rest to a
         # 157k-wide vocabulary just to have it sliced away here.
         suffix_ids = x[:, block_start:]
+        if _STEP_HOOK is not None:
+            _STEP_HOOK("step", step=step, ids=suffix_ids, block_length=block_length)
         logits, _ = model(
             suffix_ids,
             position_offset=block_start,
@@ -298,6 +323,8 @@ def _generate_block_cached(
         else:
             transfer_index = select_transfer_indices(confidence, num_transfer[:, step])
 
+        if _STEP_HOOK is not None:
+            _STEP_HOOK("commit", transfer=transfer_index, confidence=x0_p)
         active_ids = active_ids.clone()
         active_ids[transfer_index] = x0[transfer_index]
         x[:, block_start:block_end] = active_ids
@@ -313,6 +340,8 @@ def _generate_block_cached(
     # num_logits=0: this pass exists purely for its K/V side effect on
     # cache_buffer -- the logits were computed and discarded outright.
     remaining_ids = x[:, block_start:]
+    if _STEP_HOOK is not None:
+        _STEP_HOOK("finalize", ids=remaining_ids, block_length=block_length)
     model(
         remaining_ids,
         position_offset=block_start,
@@ -467,6 +496,9 @@ def generate_cached(
     # num_logits=0: like the finalize pass, this one is run only for its K/V
     # side effect -- its logits were computed over the entire (prompt +
     # all-MASK) sequence and thrown away.
+    if _STEP_HOOK is not None:
+        _STEP_HOOK("prime", ids=x, prompt_width=P, pad_len=None if prompt_lens is None else P - prompt_lens,
+                   num_blocks=num_blocks, steps_per_block=steps_per_block, block_length=block_length)
     model(x, position_offset=0, cache_buffer=cache_buffer, write_pos=0, num_logits=0,
           position_ids=position_ids, attn_mask=pad_mask)
     cache_buffer.commit(P)
@@ -475,6 +507,8 @@ def generate_cached(
         block_start = P + block_idx * block_length
         block_end = P + (block_idx + 1) * block_length
 
+        if _STEP_HOOK is not None:
+            _STEP_HOOK("block", block_idx=block_idx)
         x = _generate_block_cached(
             model=model,
             x=x,
